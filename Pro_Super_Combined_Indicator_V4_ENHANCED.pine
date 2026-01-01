@@ -55,7 +55,8 @@ useSession = input.bool(true, "Session Filter (Avoid Low Liquidity)", group=grp_
 grp_risk = "💰 INTELLIGENT RISK ENGINE"
 slMethod = input.string("ATR", "Stop Loss Method", options=["ATR", "Swing High/Low", "Fixed %"], group=grp_risk)
 atrMult = input.float(2.0, "ATR Multiplier (Stop Loss)", step=0.1, group=grp_risk, tooltip="Standard: 1.5 - 2.0")
-tpRisk = input.float(1.5, "Take Profit (R:R Ratio)", step=0.1, group=grp_risk, tooltip="Minimum 1.5 recommended")
+tpRisk = input.float(1.5, "Take Profit (R:R Ratio)", step=0.1, group=grp_risk, tooltip="Used when TP Mode is Fixed R:R")
+tpMode = input.string("Fibonacci (Golden)", "TP Mode", options=["Fibonacci (Golden)", "Fixed R:R"], group=grp_risk, tooltip="Fibonacci uses 1.618, 2.618, 4.236 extensions of Risk")
 useTrailing = input.bool(true, "Use Trailing Stop", group=grp_risk)
 trailTrigger = input.float(1.0, "Trailing Trigger (R:R)", step=0.1, group=grp_risk)
 
@@ -504,10 +505,18 @@ if long_signal
     sl_level := slMethod == "ATR" ? close - sl_dist : (not na(last_pl) ? math.min(last_pl, close - sl_dist) : close - sl_dist)
     // Dynamic Take Profit based on R:R
     float risk = close - sl_level
-    tp_level := close + (risk * tpRisk) // Main TP for engine
-    tp1_level := close + (risk * 1.0)
-    tp2_level := close + (risk * tpRisk)
-    tp3_level := close + (risk * tpRisk * 2.0)
+    
+    // TP Calculation Logic
+    if tpMode == "Fibonacci (Golden)"
+        tp_level := close + (risk * 1.618) // Main TP is Golden Ratio
+        tp1_level := close + (risk * 1.618)
+        tp2_level := close + (risk * 2.618)
+        tp3_level := close + (risk * 4.236)
+    else
+        tp_level := close + (risk * tpRisk) // Main TP for engine
+        tp1_level := close + (risk * 1.0)
+        tp2_level := close + (risk * tpRisk)
+        tp3_level := close + (risk * tpRisk * 2.0)
     
     // Initialize Trailing from SL
     trail_level := sl_level
@@ -518,10 +527,17 @@ if short_signal
     float sl_dist = atr_val * atrMult
     sl_level := slMethod == "ATR" ? close + sl_dist : (not na(last_ph) ? math.max(last_ph, close + sl_dist) : close + sl_dist)
     float risk = sl_level - close
-    tp_level := close - (risk * tpRisk) // Main TP for engine
-    tp1_level := close - (risk * 1.0)
-    tp2_level := close - (risk * tpRisk)
-    tp3_level := close - (risk * tpRisk * 2.0)
+    
+    if tpMode == "Fibonacci (Golden)"
+        tp_level := close - (risk * 1.618)
+        tp1_level := close - (risk * 1.618)
+        tp2_level := close - (risk * 2.618)
+        tp3_level := close - (risk * 4.236)
+    else
+        tp_level := close - (risk * tpRisk) // Main TP for engine
+        tp1_level := close - (risk * 1.0)
+        tp2_level := close - (risk * tpRisk)
+        tp3_level := close - (risk * tpRisk * 2.0)
 
     trail_level := sl_level
 
@@ -666,8 +682,22 @@ if showDash and barstate.islast
     // Confidence Level dengan Quality - V8.1.1 FIX: Show max confidence even in NEUTRAL
     active_conf = state == "LONG" ? confidence_long : state == "SHORT" ? confidence_short : math.max(confidence_long, confidence_short)
     conf_direction = state == "NEUTRAL" ? (confidence_long > confidence_short ? "🐂" : confidence_short > confidence_long ? "🐻" : "") : ""
-    conf_txt = str.tostring(active_conf, "#.#") + "% " + conf_direction + (signal_quality == "PREMIUM" ? "💎" : signal_quality == "STANDARD" ? "⭐" : "")
-    conf_c = active_conf > 60 ? color.lime : active_conf > 45 ? color.yellow : active_conf > 25 ? color.orange : color.gray
+    
+    // CAPSULE BAR HORIZONTAL
+    // Scale 0-10
+    int bars_fill = int(math.min(10, math.max(0, math.round(active_conf / 10))))
+    string bar_vis = ""
+    for i = 1 to 10
+        if i <= bars_fill
+            bar_vis := bar_vis + "█"
+        else
+            bar_vis := bar_vis + "░"
+            
+    conf_txt = str.tostring(active_conf, "#.0") + "% " + conf_direction + "\n" + bar_vis
+    
+    // Color Logic: < 30% is RED (DANGER ZONE)
+    conf_c = active_conf >= 60 ? color.lime : active_conf >= 45 ? color.yellow : active_conf >= 30 ? color.orange : color.red
+    
     table.cell(tbl, 0, 2, "Confidence", text_color=color.gray, text_halign=text.align_left)
     table.cell(tbl, 1, 2, conf_txt, text_color=conf_c, text_size=size.normal)
     table.merge_cells(tbl, 1, 2, 2, 2)
@@ -734,15 +764,19 @@ if showDash and barstate.islast
     tp2_txt = state == "NEUTRAL" ? "-" : str.tostring(tp2_level, format.mintick)
     tp3_txt = state == "NEUTRAL" ? "-" : str.tostring(tp3_level, format.mintick)
     
-    table.cell(tbl, 0, 12, "Secure (1:1)", text_color=color.gray, text_halign=text.align_left, text_size=size.small)
+    string l_tp1 = tpMode == "Fibonacci (Golden)" ? "Golden (1.618)" : "Secure (1:1)"
+    string l_tp2 = tpMode == "Fibonacci (Golden)" ? "Deep (2.618)" : "Standard (1:" + str.tostring(tpRisk) + ")"
+    string l_tp3 = tpMode == "Fibonacci (Golden)" ? "Extended (4.236)" : "Moonbag (1:" + str.tostring(tpRisk * 2) + ")"
+    
+    table.cell(tbl, 0, 12, l_tp1, text_color=color.gray, text_halign=text.align_left, text_size=size.small)
     table.cell(tbl, 1, 12, tp1_txt, text_color=color.lime, text_size=size.small)
     table.merge_cells(tbl, 1, 12, 2, 12)
     
-    table.cell(tbl, 0, 13, "Standard (1:" + str.tostring(tpRisk) + ")", text_color=color.gray, text_halign=text.align_left, text_size=size.small)
+    table.cell(tbl, 0, 13, l_tp2, text_color=color.gray, text_halign=text.align_left, text_size=size.small)
     table.cell(tbl, 1, 13, tp2_txt, text_color=color.lime, text_size=size.small)
     table.merge_cells(tbl, 1, 13, 2, 13)
     
-    table.cell(tbl, 0, 14, "Moonbag (1:" + str.tostring(tpRisk * 2) + ")", text_color=color.gray, text_halign=text.align_left, text_size=size.small)
+    table.cell(tbl, 0, 14, l_tp3, text_color=color.gray, text_halign=text.align_left, text_size=size.small)
     table.cell(tbl, 1, 14, tp3_txt, text_color=color.lime, text_size=size.small)
     table.merge_cells(tbl, 1, 14, 2, 14)
 
