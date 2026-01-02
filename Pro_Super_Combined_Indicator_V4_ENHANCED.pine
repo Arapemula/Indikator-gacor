@@ -1,10 +1,10 @@
-// ULTIMATE PRO V10 - **SINGULARITY ENGINE**
+// ULTIMATE PRO V11 - **SINGULARITY ENGINE**
 // RE-ENGINEERED by DeepMind for MAXIMUM POTENTIAL
 // Features: Dynamic Sensitivity, Smart Profit Locking, Adaptive Scoring
-// STATUS: OPERATIONAL
+// STATUS: OPERATIONAL - REV 11 (Fast Response Update)
 
 //@version=6
-indicator("💎 ULTIMATE PRO V10 [GOD MODE]", shorttitle="ULTIMATE V10", overlay=true, max_lines_count=500, max_boxes_count=500, max_labels_count=500, max_bars_back=4000)
+indicator("💎 ULTIMATE PRO V11 [GOD MODE]", shorttitle="ULTIMATE V11", overlay=true, max_lines_count=500, max_boxes_count=500, max_labels_count=500, max_bars_back=4000)
 
 // =============================================================================
 // ⚙️ SETTINGS
@@ -17,11 +17,12 @@ showDash = input.bool(true, "Show Dashboard", group=grp_main)
 showZones = input.bool(true, "Show Confluence Zones", group=grp_main)
 
 // --- Visuals (CLEAN LOOK) ---
-grp_vis = "� VISUAL SETTINGS"
+grp_vis = "👁 VISUAL SETTINGS"
 showPremium = input.bool(true, "Show PREMIUM Signals Only", group=grp_vis)
 showStandard = input.bool(false, "Show Standard Signals (Riskier)", group=grp_vis)
 showSMC = input.bool(true, "Show BOS/CHoCH Labels", group=grp_vis)
 showLabels = input.bool(true, "Show Text Labels", group=grp_vis)
+showFuture = input.bool(true, "Show Future Trade Projection", group=grp_vis, tooltip="Projects potential entry zones (Purple/Black) for upcoming moves")
 
 // --- Trend & Structure (SMC) ---
 grp_smc = "🏛️ SMART MONEY & TREND"
@@ -46,9 +47,9 @@ chopLen = input.int(14, "Chop Index Length", group=grp_flt)
 chopThresh = input.float(61.8, "Chop Threshold (Max)", group=grp_flt)
 useADX = input.bool(true, "Use ADX Trend Filter", group=grp_flt)
 adxLen = input.int(14, "ADX Length", group=grp_flt)
-adxThresh = input.float(10.0, "ADX Minimum (Trending)", group=grp_flt)  // V8.1.1 FIX: Reduced to 10.0 for low volatility markets
+adxThresh = input.float(15.0, "ADX Minimum (Trending)", group=grp_flt)  // Optimized for Crypto Futures
 useVol = input.bool(true, "Volume Spike Confirmation", group=grp_flt)
-useSession = input.bool(true, "Session Filter (Avoid Low Liquidity)", group=grp_flt)
+useSession = input.bool(false, "Session Filter (Avoid Low Liquidity)", group=grp_flt) // Default FALSE for Crypto (24/7)
 
 // --- Risk Management ---
 // --- Risk Management (DYNAMIC ENGINE) ---
@@ -72,13 +73,20 @@ c_bull_dim = color.new(#00ffaa, 70)
 c_bear_dim = color.new(#ff0044, 70)
 c_confluence = color.new(#ffaa00, 85)
 
-// --- 1. ENHANCED TREND ENGINE ---
+// --- 1. ENHANCED TREND ENGINE (Low Latency) ---
+ema_fast = ta.ema(close, 9) // Added for Early detection
 ema1 = ta.ema(close, 20)
 ema2 = ta.ema(close, 50)
 ema3 = ta.ema(close, 200)
 
+// Standard Trend (Stabil)
 trendBull = close > ema1 and ema1 > ema2 and ema2 > ema3
 trendBear = close < ema1 and ema1 < ema2 and ema2 < ema3
+
+// Early Trend (Aggressive - Fixes Delay)
+// We check if price is breaking out even if 200 EMA hasn't caught up yet
+trendBull_Early = close > ema_fast and ema_fast > ema1 and ema1 > ema2
+trendBear_Early = close < ema_fast and ema_fast < ema1 and ema1 < ema2
 
 // MTF Trend with ULTRA-Enhanced Strength Analysis + Volume Confirmation
 // MTF Trend with STABILIZED Logic (Reduced Repainting)
@@ -127,8 +135,8 @@ mtf1_trend = useMTF ? get_trend_strength(htf1, close) : 0
 mtf2_trend = useMTF ? get_trend_strength(htf2, close) : 0
 
 // MTF Alignment Bonus (semua timeframe searah)
-mtf_aligned_bull = mtf1_trend > 0 and mtf2_trend > 0 and trendBull
-mtf_aligned_bear = mtf1_trend < 0 and mtf2_trend < 0 and trendBear
+mtf_aligned_bull = mtf1_trend > 0 and mtf2_trend > 0 and (trendBull or trendBull_Early)
+mtf_aligned_bear = mtf1_trend < 0 and mtf2_trend < 0 and (trendBear or trendBear_Early)
 
 // --- 2. MARKET STRUCTURE (HH/HL/LL/LH) ---
 ph = ta.pivothigh(high, 5, 5)
@@ -339,6 +347,7 @@ if chop_diff > 0
     chop_idx := 100 * math.log10(chop_sum / chop_diff) / math.log10(chopLen)
 
 isChoppy = useChop and chop_idx > chopThresh
+
 // V8.1 FIX: Add fallback - if EMAs are clearly aligned, consider it trending even with weak ADX
 ema_aligned_fallback = (trendBull and ema1 > ema2 and ema2 > ema3) or (trendBear and ema1 < ema2 and ema2 < ema3)
 isTrending = not isChoppy and (isStrongTrend or ema_aligned_fallback)
@@ -394,9 +403,12 @@ score_short := 0.0
 // Momentum: 25%
 // Patterns: 10%
 
-// 1. TREND (Max 35)
+// 1. TREND (Max 35) - UPDATED V11: EARLY TREND SUPPORT
 if trendBull
     score_long += 15
+else if trendBull_Early // New: Give partial credit for early trend
+    score_long += 8
+
 if mtf1_trend > 0
     score_long += 10
 if mtf2_trend > 0
@@ -404,6 +416,9 @@ if mtf2_trend > 0
 
 if trendBear
     score_short += 15
+else if trendBear_Early // New: Partial credit
+    score_short += 8
+
 if mtf1_trend < 0
     score_short += 10
 if mtf2_trend < 0
@@ -442,9 +457,10 @@ if bearish_engulf or bearish_candle or evening_star
     score_short += 10
 
 // 5. FILTERS (Subtract only for fatal flaws, not arbitrary)
+// V11: Stricter Chop Logic - Penalty is Higher
 if isChoppy
-    score_long := score_long * 0.5 // Penalty 50% for chop
-    score_short := score_short * 0.5
+    score_long := score_long * 0.4 // Penalty 60% for chop
+    score_short := score_short * 0.4
 
 if not vol_ok
     score_long := score_long * 0.8 // Penalty 20% for low vol
@@ -472,9 +488,9 @@ min_req = base_req + dynamic_adj
 // 1. Score is high enough
 // 2. No opposing strong signal
 // 3. Not entering into extreme overbought/sold (unless Divergence is present)
-
-valid_long = score_long >= min_req and score_long > score_short + 10 and (not rsi_overbought or bull_div)
-valid_short = score_short >= min_req and score_short > score_long + 10 and (not rsi_oversold or bear_div)
+// V11: Ambiguity Filter (Don't signal valid if < 30 even if min_req is passed for some reason)
+valid_long = score_long >= min_req and score_long > 30 and score_long > score_short + 10 and (not rsi_overbought or bull_div)
+valid_short = score_short >= min_req and score_short > 30 and score_short > score_long + 10 and (not rsi_oversold or bear_div)
 
 // State Machine
 var string state = "NEUTRAL"
@@ -487,6 +503,14 @@ var string signal_quality = "NONE"
 // Signal Firing (Only on Close to avoid Repaint)
 long_signal = valid_long and state != "LONG"
 short_signal = valid_short and state != "SHORT"
+
+// V11 FIX: SIDEWAYS KILLER
+// If market is really choppy, only allow PREMIUM signals
+if isChoppy
+    if score_long < 70
+        long_signal := false
+    if score_short < 70
+        short_signal := false
 
 // Trade Execution Logic
 atr_val = ta.atr(14)
@@ -617,7 +641,8 @@ confluence_count_bear = (near_ob_bear ? 1 : 0) + (near_pivot_high ? 1 : 0) + (fv
 
 // Background Tint
 // V10 Visual: Show "Sniper Scope" (Yellow) when setup is building but not confirmed (Score > 30 but < MinReq)
-isSetupBuilding = (score_long > 30 and score_long < min_req) or (score_short > 30 and score_short < min_req)
+// V11: Only show yellow if not chop
+isSetupBuilding = not isChoppy and ((score_long > 30 and score_long < min_req) or (score_short > 30 and score_short < min_req))
 
 bgcolor(isChoppy ? color.new(color.gray, 95) : isSetupBuilding ? color.new(color.yellow, 95) : showZones and confluence_bull ? c_confluence : showZones and confluence_bear ? color.new(#ff6600, 85) : na, title="Market Condition")
 
@@ -665,14 +690,19 @@ if showDash and barstate.islast
     var tbl = table.new(position.top_right, 3, 17, bgcolor=color.new(#0a0a0a, 10), border_width=2, border_color=color.new(color.gray, 50))
     
     // Header
-    table.cell(tbl, 0, 0, "💎 ULTIMATE V10 SINGULARITY", text_color=color.white, bgcolor=color.new(#1e3a8a, 30), text_size=size.normal)
+    table.cell(tbl, 0, 0, "💎 ULTIMATE V11 SINGULARITY", text_color=color.white, bgcolor=color.new(#1e3a8a, 30), text_size=size.normal)
     table.merge_cells(tbl, 0, 0, 2, 0)
     
     // Status
+    // V11 FIX: Ambiguity
+    string status_txt = state
+    if state == "NEUTRAL" and isChoppy
+        status_txt := "CHOP - WAIT"
+    
     status_c = state == "LONG" ? c_bull : state == "SHORT" ? c_bear : color.gray
     status_emoji = state == "LONG" ? "🟢" : state == "SHORT" ? "🔴" : "⚪"
     table.cell(tbl, 0, 1, "Signal Status", text_color=color.gray, text_halign=text.align_left)
-    table.cell(tbl, 1, 1, status_emoji + " " + state, text_color=status_c, text_size=size.normal)
+    table.cell(tbl, 1, 1, status_emoji + " " + status_txt, text_color=status_c, text_size=size.normal)
     table.merge_cells(tbl, 1, 1, 2, 1)
     
     // Confidence Level (Mapped from V9 Score)
@@ -681,7 +711,17 @@ if showDash and barstate.islast
     
     // Confidence Level dengan Quality - V8.1.1 FIX: Show max confidence even in NEUTRAL
     active_conf = state == "LONG" ? confidence_long : state == "SHORT" ? confidence_short : math.max(confidence_long, confidence_short)
-    conf_direction = state == "NEUTRAL" ? (confidence_long > confidence_short ? "🐂" : confidence_short > confidence_long ? "🐻" : "") : ""
+    
+    // V11 FIX: Conf Ambiguity - If < 40%, show NOISE
+    string conf_direction = ""
+    string conf_val_display = ""
+    
+    if active_conf < 40
+        conf_direction := "😴"
+        conf_val_display := "WEAK"
+    else
+        conf_direction := state == "NEUTRAL" ? (confidence_long > confidence_short ? "🐂" : confidence_short > confidence_long ? "🐻" : "") : ""
+        conf_val_display := str.tostring(active_conf, "#.0") + "%"
     
     // CAPSULE BAR HORIZONTAL
     // Scale 0-10
@@ -693,10 +733,12 @@ if showDash and barstate.islast
         else
             bar_vis := bar_vis + "░"
             
-    conf_txt = str.tostring(active_conf, "#.0") + "% " + conf_direction + "\n" + bar_vis
+    conf_txt = conf_val_display + " " + conf_direction + "\n" + bar_vis
     
     // Color Logic: < 30% is RED (DANGER ZONE)
     conf_c = active_conf >= 60 ? color.lime : active_conf >= 45 ? color.yellow : active_conf >= 30 ? color.orange : color.red
+    if active_conf < 40
+        conf_c := color.gray // Gray out weak signals
     
     table.cell(tbl, 0, 2, "Confidence", text_color=color.gray, text_halign=text.align_left)
     table.cell(tbl, 1, 2, conf_txt, text_color=conf_c, text_size=size.normal)
@@ -779,6 +821,73 @@ if showDash and barstate.islast
     table.cell(tbl, 0, 14, l_tp3, text_color=color.gray, text_halign=text.align_left, text_size=size.small)
     table.cell(tbl, 1, 14, tp3_txt, text_color=color.lime, text_size=size.small)
     table.merge_cells(tbl, 1, 14, 2, 14)
+
+// =============================================================================
+// 🔮 QUANTUM FUTURE PREDICTION (PENDING SETUP)
+// =============================================================================
+
+// Logic:
+// We look for a valid Order Block that hasn't been broken.
+// Trend must be strong.
+// We project a "Limit Order" visual into the future.
+
+var box future_risk_box = na
+var box future_reward_box = na
+var line future_entry_line = na
+
+// Clean up old boxes on every bar (re-draw approach for dynamic movement)
+if not barstate.islast
+    // Only show on the very last bar (Live / Realtime)
+    na
+else
+    box.delete(future_risk_box)
+    box.delete(future_reward_box)
+    line.delete(future_entry_line)
+    
+    // 1. Identify Pending Level
+    // Relaxed Logic: We only need EMA structure to be trending, not the price itself (allow pullbacks)
+    bool ema_bull = ema1 > ema2 and ema2 > ema3
+    bool ema_bear = ema1 < ema2 and ema2 < ema3
+    
+    // Valid Long: EMA Bullish, valid OB exists, and price is above the OB (pullback zone)
+    bool potential_long = ema_bull and not na(ob_bull_level) and close > ob_bull_level
+    // Valid Short: EMA Bearish, valid OB exists, and price is below the OB
+    bool potential_short = ema_bear and not na(ob_bear_level) and close < ob_bear_level
+
+    // 2. Calculate Coordinates
+    float p_entry = na
+    float p_sl = na
+    float p_tp = na
+    
+    // We removed 'state == NEUTRAL' so you can see re-entry setups even while in a trade
+    if potential_long and showFuture
+        p_entry := ob_bull_level
+        p_sl := p_entry - (ta.atr(14) * 1.5) // Wide SL for Pending
+        p_tp := p_entry + (ta.atr(14) * 2.0) // 1:2 R:R roughly
+        
+        // Validation: Show if price is within 10 ATR (Visible range)
+        if close < p_entry + (ta.atr(14) * 10)
+            // Draw REWARD Box (Purple - Future)
+            future_reward_box := box.new(bar_index + 3, p_tp, bar_index + 12, p_entry, bgcolor=color.new(#9d00ff, 80), border_color=color.new(#9d00ff, 50), xloc=xloc.bar_index)
+            
+            // Draw RISK Box (Black/Grey - Future)
+            future_risk_box := box.new(bar_index + 3, p_entry, bar_index + 12, p_sl, bgcolor=color.new(#212121, 60), border_color=color.new(#ff0000, 50), xloc=xloc.bar_index)
+            
+            // Entry Line
+            future_entry_line := line.new(bar_index + 3, p_entry, bar_index + 12, p_entry, color=color.white, style=line.style_dashed)
+            
+            // Label
+            // label.new(bar_index + 12, p_entry, "WAIT ENTRY", style=label.style_label_left, color=color.new(#9d00ff, 0), textcolor=color.white, size=size.tiny)
+
+    if potential_short and showFuture
+        p_entry := ob_bear_level
+        p_sl := p_entry + (ta.atr(14) * 1.5)
+        p_tp := p_entry - (ta.atr(14) * 2.0)
+        
+        if close > p_entry - (ta.atr(14) * 10)
+            future_reward_box := box.new(bar_index + 3, p_tp, bar_index + 12, p_entry, bgcolor=color.new(#9d00ff, 80), border_color=color.new(#9d00ff, 50), xloc=xloc.bar_index)
+            future_risk_box := box.new(bar_index + 3, p_entry, bar_index + 12, p_sl, bgcolor=color.new(#212121, 60), border_color=color.new(#ff0000, 50), xloc=xloc.bar_index)
+            future_entry_line := line.new(bar_index + 3, p_entry, bar_index + 12, p_entry, color=color.white, style=line.style_dashed)
 
 // =============================================================================
 // 🔔 ALERTS
