@@ -1,0 +1,116 @@
+//@version=6
+// ============================================================================
+// MOI V2 - The "OP" Single Line (Composite Index)
+// ============================================================================
+// Konsep: Menggabungkan RSI + MACD + OBV menjadi SATU "Master Line".
+// Fitur:
+// - Single Line Oscillator: Mengurangi noise, hanya bergerak jika konsensus terjadi.
+// - Smart Normalization: Menyamakan skala MACD dan OBV agar setara dengan RSI (0-100).
+// - Dynamic Coloring: Warna berubah sesuai kekuatan tren gabungan.
+// ============================================================================
+
+indicator(title='MOI V2 - Single Line Composite', shorttitle='MOI V2', format=format.price, precision=2)
+
+// ============================================================================
+// SETTINGS
+// ============================================================================
+lookback = input.int(100, "Normalization Lookback", minval=10, tooltip="Seberapa jauh melihat ke belakang untuk menentukan skala MACD dan OBV. Semakin besar angka, semakin stabil linenya.")
+smooth = input.int(3, "Smoothing", minval=1, tooltip="Menghaluskan garis agar tidak terlalu bergerigi.")
+
+// Weights (Bobot) - Eksperimental
+// User bisa mengatur seberapa penting masing-masing indikator. Total harus idealnya logis, tapi math di bawah handling rata-rata.
+w_rsi = input.int(1, "RSI Weight", minval=0, maxval=5)
+w_macd = input.int(1, "MACD Weight", minval=0, maxval=5)
+w_obv = input.int(1, "OBV Weight", minval=0, maxval=5)
+
+// ============================================================================
+// 1. RSI CALCULATION (Nature: 0-100)
+// ============================================================================
+rsiLength = input.int(14, "RSI Length")
+rsiVal = ta.rsi(close, rsiLength)
+// RSI is already 0-100.
+
+// ============================================================================
+// 2. MACD CALCULATION (Nature: Unbounded)
+// ============================================================================
+fastMA = ta.ema(close, 12)
+slowMA = ta.ema(close, 26)
+macdLine = fastMA - slowMA
+// Normalize MACD to 0-100 based on recent range
+macdHighest = ta.highest(macdLine, lookback)
+macdLowest = ta.lowest(macdLine, lookback)
+macdRange = macdHighest - macdLowest
+macdNorm = macdRange != 0 ? ((macdLine - macdLowest) / macdRange) * 100 : 50
+
+// ============================================================================
+// 3. OBV CALCULATION (Nature: Unbounded & Cumulative)
+// ============================================================================
+// We use OBV Oscillator logic (Short EMA - Long EMA) to make it mean-reverting
+obvOsc = ta.ema(ta.obv, 5) - ta.ema(ta.obv, 20)
+// Normalize OBV to 0-100
+obvHighest = ta.highest(obvOsc, lookback)
+obvLowest = ta.lowest(obvOsc, lookback)
+obvRange = obvHighest - obvLowest
+obvNorm = obvRange != 0 ? ((obvOsc - obvLowest) / obvRange) * 100 : 50
+
+// ============================================================================
+// THE "GOD" LINE CALCULATION
+// ============================================================================
+// Combine weighted average
+totalWeight = w_rsi + w_macd + w_obv
+combinedRaw = ((rsiVal * w_rsi) + (macdNorm * w_macd) + (obvNorm * w_obv)) / totalWeight
+
+// Final Smoothing
+moiLine = ta.ema(combinedRaw, smooth)
+
+// ============================================================================
+// LOGIC & COLORS
+// ============================================================================
+// Level thresholds
+levelBuy = 80 // Extreme Overbought (Mirip RSI 70-80)
+levelSell = 20 // Extreme Oversold (Mirip RSI 20-30)
+levelMid = 50
+
+// Color Logic
+// Green: Line is rising
+// Red: Line is falling
+// Strong Green/Red: Outside safe zones
+isUp = moiLine > moiLine[1]
+lineColor = isUp ? (moiLine > levelBuy ? #00E676 : #26C6DA) : (moiLine < levelSell ? #FF5252 : #FF9800)
+
+// Fill Logic
+// Create dynamic fill from 50
+fillColor = moiLine >= 50 ? (isUp ? color.new(#26C6DA, 50) : color.new(#26C6DA, 70)) : (isUp ? color.new(#FF9800, 70) : color.new(#FF9800, 50))
+
+// ============================================================================
+// PLOTTING
+// ============================================================================
+plot(moiLine, "MOI Master Line", color=lineColor, linewidth=3)
+
+// Reference Lines (Brightened for Dark Mode)
+h1 = hline(80, "Extreme High", color=color.new(color.white, 50), linestyle=hline.style_dotted)
+h2 = hline(20, "Extreme Low", color=color.new(color.white, 50), linestyle=hline.style_dotted)
+hm = hline(50, "Zero/Mid", color=color.new(color.white, 30), linestyle=hline.style_solid)
+
+// Fill Background for Context
+fill(h1, h2, color=color.new(#1E1E1E, 90), title="Safe Channel")
+
+// Signals (Reversals from Extremes)
+// BTM: Valid ONLY IF line was previously below 20 and now crosses UP above 20
+// TOP: Valid ONLY IF line was previously above 80 and now crosses DOWN below 80
+
+crossUp20 = ta.crossover(moiLine, 20)
+crossDown80 = ta.crossunder(moiLine, 80)
+
+// Trend Confirmations (50 line)
+crossUp50 = ta.crossover(moiLine, 50)
+crossDown50 = ta.crossunder(moiLine, 50)
+
+// Plot Signals
+// Plot Signals (Forced Position relative to Line)
+plotshape(crossUp20 ? moiLine - 5 : na, "Bottom Reversal", shape.labelup, location.absolute, color=color.new(#00E676, 0), text="BTM", textcolor=color.black, size=size.tiny)
+plotshape(crossDown80 ? moiLine + 5 : na, "Top Reversal", shape.labeldown, location.absolute, color=color.new(#FF5252, 0), text="TOP", textcolor=color.white, size=size.tiny)
+
+// 50 Crosses (Trend Following) - Smaller dots
+plot(crossUp50 ? 50 : na, "Bull Trend Start", style=plot.style_circles, color=color.new(#00E676, 0), linewidth=3)
+plot(crossDown50 ? 50 : na, "Bear Trend Start", style=plot.style_circles, color=color.new(#FF5252, 0), linewidth=3)
